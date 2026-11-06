@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temporizador</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --fg: #1c1c1c;
+    --muted: #8a8a85;
+    --line: #dddcd6;
+    --accent: #1c1c1c;
+    --rest: #3f7d6b;
+    --done: #c2410c;
+  }
+  :root[data-theme="dark"] {
+    --bg: #111112;
+    --fg: #ededeb;
+    --muted: #77777a;
+    --line: #2a2a2d;
+    --accent: #ededeb;
+    --rest: #7cc4ac;
+    --done: #fb923c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 3vh, 28px);
+    padding: 16px 16px 40px;
+    overflow: hidden;
+    transition: background .3s, color .3s;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Botones de esquina: tema y colapsar */
+  .corner {
+    position: fixed; top: 10px; right: 10px;
+    width: 28px; height: 28px;
+    border: 0; background: none; cursor: pointer;
+    color: var(--muted); border-radius: 50%;
+    display: grid; place-items: center;
+    transition: opacity .25s;
+  }
+  .corner:hover { color: var(--fg); }
+  .corner svg { width: 16px; height: 16px; }
+  #collapse { right: 40px; }
+  #collapse .expand { display: none; }
+
+  /* Interfaz colapsada: solo hora actual y cuenta atrás */
+  body.collapsed { padding-bottom: 16px; gap: clamp(4px, 2vh, 16px); }
+  body.collapsed #phase,
+  body.collapsed #ends,
+  body.collapsed #bar,
+  body.collapsed #controls,
+  body.collapsed #keys { display: none; }
+  body.collapsed #countdown { font-size: clamp(40px, 26vmin, 260px); }
+  body.collapsed .corner { opacity: 0; }
+  body.collapsed:hover .corner, body.collapsed .corner:focus-visible { opacity: 1; }
+  body.collapsed #collapse .shrink { display: none; }
+  body.collapsed #collapse .expand { display: block; }
+
+  /* Hora actual */
+  #clock {
+    font-size: clamp(14px, 4.5vmin, 30px);
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: .04em;
+  }
+
+  /* Fase del pomodoro */
+  #phase {
+    display: flex; align-items: center; gap: 10px;
+    font-size: clamp(11px, 2.8vmin, 14px);
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  #phase[hidden] { display: none; }
+  #phase.rest { color: var(--rest); }
+  #dots { display: flex; gap: 5px; }
+  #dots i {
+    width: 6px; height: 6px; border-radius: 50%;
+    border: 1px solid currentColor;
+  }
+  #dots i.on { background: currentColor; }
+
+  /* Cuenta atrás */
+  #countdown {
+    font-size: clamp(36px, 18vmin, 180px);
+    font-weight: 200;
+    line-height: 1;
+    letter-spacing: -.02em;
+    transition: color .3s;
+  }
+  body.rest #countdown { color: var(--rest); }
+  #countdown.done { color: var(--done); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  #ends {
+    font-size: clamp(11px, 2.8vmin, 15px);
+    color: var(--muted);
+    min-height: 1.2em;
+    text-align: center;
+  }
+
+  /* Barra de progreso */
+  #bar {
+    width: min(70vw, 520px); height: 2px;
+    background: var(--line); border-radius: 2px; overflow: hidden;
+  }
+  #fill { height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+  body.rest #fill { background: var(--rest); }
+
+  /* Controles */
+  #controls {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px;
+    transition: opacity .25s;
+  }
+  .tabs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
+  .tabs button {
+    border: 0; background: none; color: var(--muted);
+    font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .tabs button.on { background: var(--fg); color: var(--bg); }
+
+  .inputs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .inputs[hidden] { display: none; }
+  input[type="number"], input[type="time"] {
+    font: inherit; font-size: 18px; color: var(--fg);
+    background: transparent; border: 0; border-bottom: 1px solid var(--line);
+    text-align: center; padding: 2px 0; outline: none;
+    -webkit-user-select: text; user-select: text;
+  }
+  input:focus { border-bottom-color: var(--fg); }
+  input[type="number"] { width: 3ch; -moz-appearance: textfield; }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="time"] { width: auto; color-scheme: light; }
+  :root[data-theme="dark"] input[type="time"] { color-scheme: dark; }
+  .unit { font-size: 11px; color: var(--muted); margin-right: 4px; }
+
+  .field { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0 4px; }
+  .field .unit { margin: 0; }
+
+  .auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .auto input { accent-color: var(--fg); cursor: pointer; }
+  .auto[hidden] { display: none; }
+
+  .actions { display: flex; gap: 8px; }
+  .actions button {
+    font: inherit; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--line); background: none; color: var(--fg);
+    padding: 6px 18px; border-radius: 999px; min-width: 84px;
+  }
+  .actions button:hover { border-color: var(--fg); }
+  .actions button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .actions button[hidden] { display: none; }
+
+  /* Atajos */
+  #keys {
+    position: fixed; left: 0; right: 0; bottom: 12px;
+    text-align: center; font-size: 11px; color: var(--muted);
+    padding: 0 16px; line-height: 1.8;
+  }
+  kbd {
+    font: inherit; font-size: 10px;
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 0 5px; margin-right: 3px;
+  }
+  #keys span { white-space: nowrap; margin: 0 6px; }
+
+  /* Modo widget: ventana pequeña -> solo se ven reloj y cuenta atrás; controles al pasar el ratón */
+  @media (max-height: 420px), (max-width: 300px) {
+    body { gap: 6px; padding-bottom: 16px; }
+    #keys { display: none; }
+    #controls {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 10px; gap: 8px;
+      background: var(--bg);
+      opacity: 0; pointer-events: none;
+    }
+    body:hover #controls, #controls:focus-within { opacity: 1; pointer-events: auto; }
+    .corner { opacity: 0; }
+    body:hover .corner { opacity: 1; }
+    #bar { width: 70vw; }
+  }
+  @media (max-height: 200px) {
+    #ends { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<button id="collapse" class="corner" title="Colapsar / expandir interfaz (C)" aria-label="Colapsar interfaz">
+  <svg class="shrink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>
+  <svg class="expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+</button>
+<button id="theme" class="corner" title="Cambiar tema (T)" aria-label="Cambiar tema">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 7v10" /><path d="M12 7a5 5 0 0 1 0 10z" fill="currentColor"/></svg>
+</button>
+
+<div id="clock">--:--:--</div>
+<div id="phase" hidden><span id="phase-name">Enfoque</span><span id="dots"></span></div>
+<div id="countdown">00:00</div>
+<div id="ends"></div>
+<div id="bar"><div id="fill"></div></div>
+
+<div id="controls">
+  <div class="tabs" role="tablist">
+    <button id="tab-dur" class="on">Duración</button>
+    <button id="tab-end">Hora de fin</button>
+    <button id="tab-pomo">Pomodoro</button>
+  </div>
+
+  <div class="inputs" id="in-dur">
+    <input type="number" id="h" min="0" max="99" value="0" aria-label="Horas"><span class="unit">h</span>
+    <input type="number" id="m" min="0" max="59" value="25" aria-label="Minutos"><span class="unit">min</span>
+    <input type="number" id="s" min="0" max="59" value="0" aria-label="Segundos"><span class="unit">s</span>
+  </div>
+
+  <div class="inputs" id="in-end" hidden>
+    <input type="time" id="endtime" step="60" aria-label="Hora de finalización">
+  </div>
+
+  <div class="inputs" id="in-pomo" hidden>
+    <label class="field"><input type="number" id="p-work" min="1" max="180" value="25"><span class="unit">enfoque</span></label>
+    <label class="field"><input type="number" id="p-short" min="1" max="60" value="5"><span class="unit">descanso</span></label>
+    <label class="field"><input type="number" id="p-long" min="1" max="90" value="15"><span class="unit">largo</span></label>
+    <label class="field"><input type="number" id="p-cycles" min="1" max="12" value="4"><span class="unit">ciclos</span></label>
+  </div>
+  <label class="auto" id="auto-wrap" hidden><input type="checkbox" id="p-auto" checked> Encadenar fases automáticamente</label>
+
+  <div class="actions">
+    <button id="start" class="primary">Iniciar</button>
+    <button id="skip" hidden>Saltar</button>
+    <button id="reset">Reiniciar</button>
+  </div>
+</div>
+
+<div id="keys">
+  <span><kbd>Espacio</kbd>iniciar / pausar</span>
+  <span><kbd>R</kbd>reiniciar</span>
+  <span><kbd>N</kbd>saltar fase</span>
+  <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>modo</span>
+  <span><kbd>C</kbd>colapsar</span>
+  <span><kbd>T</kbd>tema</span>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const root = document.documentElement;
+  const pad = n => String(n).padStart(2, '0');
+
+  const store = {
+    get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} }
+  };
+
+  // ---- Tema ----
+  const prefersDark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = store.get('timer-theme') || (prefersDark ? 'dark' : 'light');
+  const toggleTheme = () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    store.set('timer-theme', root.dataset.theme);
+  };
+  $('theme').onclick = toggleTheme;
+
+  // ---- Interfaz colapsada ----
+  const setCollapsed = on => {
+    document.body.classList.toggle('collapsed', on);
+    $('collapse').setAttribute('aria-label', on ? 'Expandir interfaz' : 'Colapsar interfaz');
+    store.set('timer-collapsed', on ? '1' : '0');
+  };
+  const toggleCollapse = () => {
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur();
+    setCollapsed(!document.body.classList.contains('collapsed'));
+  };
+  setCollapsed(store.get('timer-collapsed') === '1');
+  $('collapse').onclick = toggleCollapse;
+  $('countdown').ondblclick = toggleCollapse;
+
+  // ---- Ajustes del pomodoro (se recuerdan) ----
+  const pomoFields = ['p-work', 'p-short', 'p-long', 'p-cycles'];
+  try {
+    const saved = JSON.parse(store.get('timer-pomo') || '{}');
+    pomoFields.forEach(id => { if (saved[id]) $(id).value = saved[id]; });
+    if ('p-auto' in saved) $('p-auto').checked = saved['p-auto'];
+  } catch {}
+  const savePomo = () => {
+    const o = { 'p-auto': $('p-auto').checked };
+    pomoFields.forEach(id => o[id] = $(id).value);
+    store.set('timer-pomo', JSON.stringify(o));
+  };
+  [...pomoFields, 'p-auto'].forEach(id => $(id).addEventListener('change', savePomo));
+
+  const num = (id, min = 0) => Math.max(min, +$(id).value || 0);
+  const cycles = () => Math.max(1, num('p-cycles', 1));
+  const PHASES = {
+    work:  { name: 'Enfoque',        mins: () => num('p-work', 1) },
+    short: { name: 'Descanso',       mins: () => num('p-short', 1) },
+    long:  { name: 'Descanso largo', mins: () => num('p-long', 1) },
+  };
+  const pomo = { phase: 'work', count: 0 };   // count = enfoques completados en la serie actual
+
+  // ---- Estado ----
+  let mode = 'dur';          // 'dur' | 'end' | 'pomo'
+  let endAt = null;          // timestamp (ms) de fin cuando está en marcha
+  let total = 0;             // duración total (ms) para la barra
+  let remaining = 0;         // ms restantes cuando está en pausa
+  let running = false;
+  let finished = false;
+  let notice = '';           // mensaje tras terminar una fase sin encadenar
+
+  const MODES = ['dur', 'end', 'pomo'];
+  const setMode = m => {
+    if (running || remaining) return;
+    mode = m;
+    MODES.forEach(x => {
+      $('tab-' + x).classList.toggle('on', m === x);
+      $('in-' + x).hidden = m !== x;
+    });
+    $('auto-wrap').hidden = m !== 'pomo';
+    $('skip').hidden = m !== 'pomo';
+    $('phase').hidden = m !== 'pomo';
+    resetTimer();
+  };
+  MODES.forEach(x => $('tab-' + x).onclick = () => setMode(x));
+
+  // Hora de fin por defecto: dentro de 30 min
+  const d = new Date(Date.now() + 30 * 60000);
+  $('endtime').value = pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+  const durationFromInputs = () => ((num('h') * 60 + num('m')) * 60 + num('s')) * 1000;
+  const phaseDuration = () => PHASES[pomo.phase].mins() * 60000;
+
+  const targetFromTime = () => {
+    const v = $('endtime').value;
+    if (!v) return null;
+    const [h, m, s = 0] = v.split(':').map(Number);
+    const t = new Date();
+    t.setHours(h, m, s, 0);
+    if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1); // si ya pasó, mañana
+    return t.getTime();
+  };
+
+  const fmt = ms => {
+    const sec = Math.ceil(ms / 1000);
+    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+  };
+  const fmtClock = t => { const x = new Date(t); return pad(x.getHours()) + ':' + pad(x.getMinutes()); };
+
+  // ---- Controles ----
+  const start = () => {
+    if (finished) resetTimer();
+    notice = '';
+    if (remaining > 0) {
+      endAt = Date.now() + remaining;
+    } else if (mode === 'dur') {
+      total = durationFromInputs();
+      if (!total) return;
+      endAt = Date.now() + total;
+    } else if (mode === 'end') {
+      endAt = targetFromTime();
+      if (!endAt) return;
+      total = endAt - Date.now();
+    } else {
+      total = phaseDuration();
+      endAt = Date.now() + total;
+    }
+    remaining = 0;
+    running = true;
+    unlockAudio();
+    render();
+  };
+
+  const pause = () => {
+    remaining = Math.max(0, endAt - Date.now());
+    running = false;
+    render();
+  };
+  const toggle = () => running ? pause() : start();
+
+  function resetTimer() {
+    running = false; finished = false;
+    endAt = null; remaining = 0; total = 0;
+    notice = '';
+    render();
+  }
+
+  // En pomodoro: con el temporizador activo reinicia la fase; si ya está parado, reinicia la serie
+  const reset = () => {
+    if (mode === 'pomo' && !running && !remaining) {
+      pomo.phase = 'work'; pomo.count = 0;
+    }
+    resetTimer();
+  };
+
+  // Pasa a la siguiente fase del pomodoro
+  function nextPhase(completed) {
+    if (pomo.phase === 'work') {
+      if (completed) pomo.count++;
+      pomo.phase = pomo.count >= cycles() ? 'long' : 'short';
+    } else {
+      if (pomo.phase === 'long') pomo.count = 0;
+      pomo.phase = 'work';
+    }
+  }
+  const skip = () => {
+    if (mode !== 'pomo') return;
+    const wasRunning = running;
+    nextPhase(false);
+    resetTimer();
+    if (wasRunning) start();
+  };
+
+  $('start').onclick = toggle;
+  $('reset').onclick = reset;
+  $('skip').onclick = skip;
+
+  document.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') {
+      if (e.key === 'Enter') { e.target.blur(); start(); }
+      return;
+    }
+    const k = e.key.toLowerCase();
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    else if (k === 'r') reset();
+    else if (k === 'n') skip();
+    else if (k === 't') toggleTheme();
+    else if (k === 'c') toggleCollapse();
+    else if (k >= '1' && k <= '3') setMode(MODES[+k - 1]);
+  });
+
+  // Actualiza la vista previa al editar
+  ['h', 'm', 's', 'endtime', ...pomoFields].forEach(id =>
+    $(id).addEventListener('input', () => { if (!running && !remaining) render(); }));
+
+  // ---- Sonido ----
+  let ctx;
+  function unlockAudio() {
+    try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); } catch {}
+  }
+  function chime(freq = 880, times = 3) {
+    if (!ctx) return;
+    for (let i = 0; i < times; i++) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      const t = ctx.currentTime + i * .35;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(.25, t + .02);
+      g.gain.exponentialRampToValueAtTime(.001, t + .3);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + .32);
+    }
+  }
+
+  function onFinish() {
+    if (mode !== 'pomo') {
+      running = false; finished = true;
+      chime();
+      return;
+    }
+    const was = pomo.phase;
+    nextPhase(true);
+    chime(was === 'work' ? 660 : 880, was === 'work' ? 2 : 3);
+    running = false; endAt = null; total = 0;
+    if ($('p-auto').checked) {
+      start();
+    } else {
+      notice = `${PHASES[was].name} terminado · Espacio para empezar ${PHASES[pomo.phase].name.toLowerCase()}`;
+    }
+  }
+
+  // ---- Render ----
+  function renderPhase() {
+    const isRest = mode === 'pomo' && pomo.phase !== 'work';
+    document.body.classList.toggle('rest', isRest);
+    $('phase').classList.toggle('rest', isRest);
+    if (mode !== 'pomo') return;
+    $('phase-name').textContent = PHASES[pomo.phase].name;
+    const n = cycles();
+    const filled = pomo.phase === 'long' ? n : pomo.count;
+    if ($('dots').children.length !== n) $('dots').innerHTML = '<i></i>'.repeat(n);
+    [...$('dots').children].forEach((dot, i) => dot.classList.toggle('on', i < filled));
+  }
+
+  function render() {
+    const now = Date.now();
+    $('clock').textContent = new Date(now).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    if (running && endAt - now <= 0) onFinish();
+
+    let left, label = '';
+    if (running) {
+      left = Math.max(0, endAt - now);
+      label = 'Termina a las ' + fmtClock(endAt);
+    } else if (remaining > 0) {
+      left = remaining; label = 'En pausa';
+    } else if (finished) {
+      left = 0; label = 'Tiempo cumplido';
+    } else if (mode === 'dur') {
+      left = durationFromInputs();
+      label = left ? 'Terminaría a las ' + fmtClock(now + left) : '';
+    } else if (mode === 'end') {
+      const t = targetFromTime();
+      left = t ? t - now : 0;
+      label = t ? 'Hasta las ' + fmtClock(t) : '';
+    } else {
+      left = phaseDuration();
+      label = notice || 'Terminaría a las ' + fmtClock(now + left);
+    }
+
+    renderPhase();
+    $('countdown').textContent = fmt(left);
+    $('countdown').classList.toggle('done', finished);
+    $('ends').textContent = label;
+    $('fill').style.width = total && (running || remaining || finished)
+      ? Math.min(100, (1 - left / total) * 100) + '%' : '0%';
+    $('start').textContent = running ? 'Pausar' : (remaining > 0 ? 'Reanudar' : 'Iniciar');
+
+    const tag = mode === 'pomo' ? PHASES[pomo.phase].name : 'Temporizador';
+    document.title = finished ? '⏰ ¡Tiempo!'
+      : (running || remaining) ? `${fmt(left)} · ${tag}`
+      : notice ? '⏰ ' + tag : tag;
+  }
+
+  setInterval(render, 250);
+  render();
+})();
+</script>
+</body>
+</html>
